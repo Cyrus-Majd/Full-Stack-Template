@@ -4,9 +4,12 @@ from mySQL_connector import create_server_connection, create_database, create_db
 import threading
 import signal
 
+global t1
+global end_all_threads
+end_all_threads = False
+
 app = Flask(__name__)
 data_queue = []
-global conn
 
 @app.route('/index', methods = ['GET'])
 def index():
@@ -14,12 +17,21 @@ def index():
 
 @app.route('/', methods = ['POST', 'GET'])
 def login():
-    if request.method == 'POST' or request.method == 'GET':
+    if request.method == 'POST':
         password = request.form['password']
         print("PASSWORD:", password)
         email = request.form['email']
         print("EMAIL:", email)
-        execute_query(conn, insert_to_login((email, password)))
+        data_queue.append((email, password))
+        print(data_queue)
+        return "Data recieved."
+    else:
+        password = request.args.get('password')
+        print("PASSWORD:", password)
+        email = request.args.get('email')
+        print("EMAIL:", email)
+        data_queue.append((email, password))
+        print(data_queue)
         return "Data recieved."
 
 @app.route('/pop', methods = ['POST', 'GET'])
@@ -34,8 +46,24 @@ def pop_from_queue():
 def is_empty():
     return str(not bool(data_queue)) # returns false if the queue is empty
 
+def monitor_queue():
+    print("in monitor queue")
+    while(True):
+        if (end_all_threads == True):
+            break
+        if (len(data_queue) > 0): # there is stuff in the queue
+            data = data_queue.pop(0)
+            print("POPPING FROM THE QUEUE, TYPE & DATA:")
+            print(type(data), data)
+
 def catch_program_halt(signum, frame): # for when you cntrl + c from the program, closes all threads.
     print("The program has detected Ctrl + C on the keyboard. Exiting.")
+    try:
+        global end_all_threads
+        end_all_threads = True
+        # t1.join() # join queue monitoring thread
+    except:
+        print("Could not end monitoring thread!!")
     exit()
 
 def main():
@@ -53,14 +81,17 @@ def main():
     connection = create_db_connection(databaseURL, databaseRootUsername, databasePassword, databaseName) # Connect to the Database
     execute_query(connection, login_table) # Execute our defined query
 
-    global conn
-    conn = connection
-
     try:
         signal.signal(signal.SIGINT, catch_program_halt)
     except:
         print("Could not use signal handler to detect for cntrl + c at end of program!")
-        app.end()
+        exit()
+
+    try:
+        t1 = threading.Thread(target = monitor_queue, args=())
+        t1.start()
+    except:
+        print("There was an error in multithreading!")
         exit()
 
 if __name__ == '__main__':
